@@ -5,6 +5,7 @@ import { Tab } from '@headlessui/react';
 import { toast, Toaster } from 'react-hot-toast';
 import { RadialBarChart, RadialBar, PolarAngleAxis, ResponsiveContainer } from 'recharts';
 import { useSpring, animated } from '@react-spring/web';
+import FragenFlow from "./FragenFlow";
 import {
   ShieldCheck,
   PawPrint,
@@ -42,7 +43,8 @@ import {
 } from "lucide-react";
 
 
-// Typdefinition für einen Vertrag
+
+// Typdefinitionen
 type Contract = {
   id: string; // Neue ID-Eigenschaft
   status: string;
@@ -52,6 +54,13 @@ type Contract = {
   beitrag: string;
   datenaktualisierung: string;
 };
+
+type RecommendedProduct = {
+  produkt: string;
+  gewichtung: number;
+  reason?: string;
+};
+
 
 // Initiale Vertragsdaten
 const savedContracts = localStorage.getItem("contracts");
@@ -569,7 +578,7 @@ const GaugeChart = ({
 
 
 
-//------------- START -----------------------------------------------
+//------------- START -Komponenten-Body----------------------------------------------
 export default function App() {
 
   // ⚙️ Zustand (useState) und andere Hooks hier...
@@ -590,10 +599,16 @@ export default function App() {
   const [editingContract, setEditingContract] = useState<Contract | null>(null);
   const [contracts, setContracts] = useState<Contract[]>(initialContracts);
   const [showInsuranceFolder, setShowInsuranceFolder] = useState(false);
+  
+  const [showFragenFlow, setShowFragenFlow] = useState(false);
+  const [antworten, setAntworten] = useState<Record<string, string>>({});
+  const [neueEmpfehlungen, setNeueEmpfehlungen] = useState<{ produkt: string; reason: string; gewichtung: number }[]>([]);
+
   const storedRecommendations = localStorage.getItem("recommendedProducts");
-  const [recommendedProducts, setRecommendedProducts] = useState<{ produkt: string, gewichtung: number }[]>(
+  const [recommendedProducts, setRecommendedProducts] = useState<RecommendedProduct[]>(
     storedRecommendations ? JSON.parse(storedRecommendations) : []
   );
+  
   const [showResultsModal, setShowResultsModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [sortField, setSortField] = useState<string>("versicherer");
@@ -828,6 +843,11 @@ export default function App() {
     setSelectedProduct(produkt);
   };
 
+  const handleResetEmpfehlungen = () => {
+    setRecommendedProducts([]);
+    localStorage.removeItem("recommendedProducts");
+  };
+  
   const circleColors: Record<string, string> = {
     red: "bg-red-500",
     yellow: "bg-yellow-400",
@@ -1018,6 +1038,34 @@ export default function App() {
     toast.success("Vertrag erfolgreich hinzugefügt!");
   };  
 
+  
+  const handleEmpfehlungEntfernen = (produkt: string) => {
+    const confirmDelete = window.confirm(
+      `Möchtest du die Produktempfehlung für "${produkt}" wirklich entfernen?`
+    );
+    if (!confirmDelete) return;
+  
+    const updated = recommendedProducts.filter((r) => r.produkt !== produkt);
+    setRecommendedProducts(updated);
+    localStorage.setItem("recommendedProducts", JSON.stringify(updated));
+    toast.success(`${produkt} wurde aus den Empfehlungen entfernt.`);
+  };
+  
+  const handleEmpfehlungUebernehmen = (produkt: string, reason: string, gewichtung: number) => {
+    setRecommendedProducts((prev) => {
+      const bereitsVorhanden = prev.some((r) => r.produkt === produkt);
+      if (bereitsVorhanden) return prev;
+  
+      const neuesProdukt: RecommendedProduct = { produkt, gewichtung, reason };
+      const updated = [...prev, neuesProdukt];
+  
+      localStorage.setItem("recommendedProducts", JSON.stringify(updated));
+      return updated;
+    });
+  };
+  
+  
+
   const highlightMatch = (text: string, query: string): JSX.Element | string => {
     if (!query) return text;
     const parts = text.split(new RegExp(`(${query})`, 'gi'));
@@ -1064,24 +1112,6 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("recommendedProducts", JSON.stringify(recommendedProducts));
   }, [recommendedProducts]);
-
-  useEffect(() => {
-      const gewichteteEmpfehlungen: Record<string, number> = {};
-      Object.entries(answers).forEach(([frageIndex, antwort]) => {
-          if (antwort === "ja") {
-              const empfohlene = recommendations[parseInt(frageIndex)];
-              empfohlene?.forEach(({ produkt, gewichtung }) => {
-                  gewichteteEmpfehlungen[produkt] = (gewichteteEmpfehlungen[produkt] || 0) + gewichtung;
-              });
-          }
-      });
-
-      const resultProducts = Object.entries(gewichteteEmpfehlungen)
-          .sort((a, b) => b[1] - a[1])
-          .map(([produkt]) => produkt);
-
-      setRecommendedProducts(resultProducts); // 🔥 Zustand wird hier einmalig im useEffect gesetzt
-  }, [answers]); // 🔑 Nur ausführen, wenn sich answers ändert
 
 
   // Weitere Funktionen, useEffects, Konstanten hier...
@@ -1368,50 +1398,87 @@ export default function App() {
                         </label>
                       </div>
 
-                      {getSortedRecommendedProductsFromStorage()
-                        .filter(({ produkt }) => !showOnlyMissing || !isCovered(produkt))
-                        .map(({ produkt, gewichtung }) => (
-                          <div
-                            key={produkt}
-                            onClick={() => {
-                              setSelectedProduct(produkt);
-                              setShowResultsModal(false);
-                            }}
-                            className={`flex justify-between items-center border border-gray-200 rounded-xl p-4 shadow-sm transition hover:bg-gray-50 hover:shadow-md cursor-pointer ${
-                              gewichtung >= 4 ? 'bg-yellow-50' : 'bg-white'
-                            }`}
-                          >
-                            {/* Linke Seite: Icon, Name, Wichtigkeit */}
-                            <div className="flex items-center gap-3 text-sm font-medium text-gray-800">
-                              {productIcons[produkt]}
-                              <span>{produkt}</span>
-                              <span
-                                className={`text-xs font-semibold px-2 py-0.5 rounded-full ml-2 ${
-                                  gewichtung >= 5
-                                    ? 'bg-green-600 text-white'
-                                    : gewichtung === 4
-                                    ? 'bg-yellow-400 text-gray-900'
-                                    : 'bg-gray-200 text-gray-800'
-                                }`}
+                      {(() => {
+                        const gruppiert: Record<string, RecommendedProduct[]> = {};
+
+                        [...recommendedProducts]
+                          .filter(({ produkt }) => !showOnlyMissing || !isCovered(produkt))
+                          .sort((a, b) => b.gewichtung - a.gewichtung)
+                          .forEach((p) => {
+                            const kat = Object.entries(versicherungen).find(([_, liste]) =>
+                              liste.includes(p.produkt)
+                            )?.[0] || "Sonstiges";
+                            gruppiert[kat] = gruppiert[kat] || [];
+                            gruppiert[kat].push(p);
+                          });
+
+                        if (Object.keys(gruppiert).length === 0) {
+                          return (
+                            <div className="italic text-gray-500 px-2">
+                              {showOnlyMissing
+                                ? "Alle empfohlenen Produkte sind bereits vorhanden."
+                                : "Keine empfohlenen Produkte vorhanden."}
+                            </div>
+                          );
+                        }
+
+                        return Object.entries(gruppiert).map(([kategorie, produkte]) => (
+                          <div key={kategorie} className="space-y-3">
+                            <h3 className="text-lg font-semibold mt-6 mb-3 flex items-center gap-2">
+                              {icons[kategorie] || <span className="w-5" />}
+                              <span className="text-red-600">{kategorie}</span>
+                            </h3>
+
+                            {produkte.map(({ produkt, gewichtung }) => (
+                              <div
+                                key={produkt}
+                                className="grid grid-cols-12 gap-3 items-start border border-gray-200 rounded-xl p-4 shadow-sm bg-white"
                               >
-                                {gewichtLabels[gewichtung]}
-                              </span>
-                            </div>
+                                <div className="col-span-6 flex gap-2 items-start">
+                                  {productIcons[produkt]}
+                                  <div>
+                                    <div className="font-medium text-gray-800">{produkt}</div>
+                                    <div className="text-sm text-gray-600">
+                                      {tooltipTexte[produkt] || "Keine Begründung verfügbar."}
+                                    </div>
+                                  </div>
+                                </div>
 
-                            {/* Rechte Seite: Status */}
-                            <div className="text-sm text-right">
-                              {isCovered(produkt) ? (
-                                <span className="text-green-600">✅ Vorhanden</span>
-                              ) : (
-                                <span className="text-gray-400">Fehlt</span>
-                              )}
-                            </div>
+                                <div className="col-span-3 flex items-center">
+                                  <span
+                                    className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                                      gewichtung >= 5
+                                        ? "bg-green-600 text-white"
+                                        : gewichtung === 4
+                                        ? "bg-yellow-400 text-gray-900"
+                                        : "bg-gray-200 text-gray-800"
+                                    }`}
+                                  >
+                                    {gewichtLabels[gewichtung]}
+                                  </span>
+                                </div>
+
+                                <div className="col-span-3 text-right text-sm">
+                                  {isCovered(produkt) ? (
+                                    <span className="text-green-600">✅ Vorhanden</span>
+                                  ) : (
+                                    <span className="text-gray-400">Fehlt</span>
+                                  )}
+                                </div>
+
+                                <div className="col-span-12 text-right">
+                                  <button
+                                    onClick={() => handleEmpfehlungEntfernen(produkt)}
+                                    className="text-red-500 text-xs hover:underline"
+                                  >
+                                    🗑 Empfehlung entfernen
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
                           </div>
-                      ))}
-
-                      <div className="italic text-gray-500 px-2">
-                        Keine empfohlenen Produkte vorhanden.
-                      </div>
+                        ));
+                      })()}
                     </Tab.Panel>
 
                     {/* Gespeicherte Angebote */}
@@ -1713,18 +1780,65 @@ export default function App() {
         <section className="mt-10">
           <h2 className="text-xl font-bold mb-4">Persönlicher Bedarfscheck</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">     
-            <button
-              onClick={() => setShowBedarfscheckModal(true)}
-              className="col-span-2 text-left bg-white rounded-2xl shadow-md p-6 space-y-2 border border-gray-200 hover:border-gray-400 hover:shadow-lg transition w-full"
-            >
-              <div className="flex items-center gap-2 font-medium">
-                <HelpCircle className="w-5 h-5 text-red-500" />
-                Bedarfsanalyse starten
+            {!showFragenFlow && (
+              <button
+                onClick={() => setShowFragenFlow(true)}
+                className="col-span-2 text-left bg-white rounded-2xl shadow-md p-6 space-y-2 border border-gray-200 hover:border-gray-400 hover:shadow-lg transition w-full"
+              >
+                <div className="flex items-center gap-2 font-medium">
+                  <HelpCircle className="w-5 h-5 text-red-500" />
+                  Bedarfsanalyse starten
+                </div>
+                <div className="text-sm text-gray-600">
+                  Finde heraus, welche Versicherungen zu deiner Lebenssituation passen.
+                </div>
+              </button>
+            )}
+
+            {showFragenFlow && (
+              <div className="col-span-2 bg-white rounded-xl p-6 border border-gray-200 mt-4">
+                <FragenFlow
+                  onFinish={(antworten) => {
+                    setAntworten(antworten);
+                    setShowFragenFlow(false);
+                  }}                  
+                  onÜbernehmen={(produkt, reason) => {
+                    handleEmpfehlungUebernehmen(produkt, reason, 3); // default: Gewichtung = 3
+                  }}
+                  onResetEmpfehlungen={handleResetEmpfehlungen}
+                />
               </div>
-              <div className="text-sm text-gray-600">
-                Finde heraus, welche Versicherungen zu deiner Lebenssituation passen.
+            )}
+
+            {neueEmpfehlungen.length > 0 && (
+              <div className="col-span-2 bg-white rounded-xl p-6 border border-gray-200 mt-4">
+                <h3 className="text-xl font-semibold mb-4">Empfohlene Produkte</h3>
+                <ul className="space-y-3">
+                {neueEmpfehlungen.map(({ produkt, reason, gewichtung }) => {
+                    const bereitsVorhanden = recommendedProducts.some((r) => r.produkt === produkt);
+
+                    return (
+                      <li key={produkt} className="border border-gray-200 rounded-xl p-4 bg-white shadow-sm">
+                        <div className="font-medium text-gray-800">{produkt}</div>
+                        <div className="text-sm text-gray-600 mt-1">{reason}</div>
+                        <button
+                          disabled={bereitsVorhanden}
+                          onClick={() => handleEmpfehlungUebernehmen(produkt, reason, gewichtung)}
+                          className={`mt-2 text-sm ${
+                            bereitsVorhanden
+                              ? "text-gray-400 cursor-not-allowed"
+                              : "text-blue-600 hover:underline"
+                          }`}
+                        >
+                          {bereitsVorhanden ? "✔ Bereits übernommen" : "➕ In Ordner übernehmen"}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
               </div>
-            </button>
+            )}
+
 
               {showBedarfscheckModal && (
                 <Dialog open={showBedarfscheckModal} onClose={() => {
